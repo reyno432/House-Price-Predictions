@@ -1,0 +1,385 @@
+---
+title: "Stt481.Finalproject.rmd"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+```{r}
+library(readr)
+train.clean <- read_csv("C:/Users/philr/Downloads/train_new.csv")
+test.clean <- read_csv("C:/Users/philr/Downloads/test_new.csv")
+train <- read_csv("C:/Users/philr/Downloads/house-prices-advanced-regression-techniques/train.csv")
+
+#View(test.clean)
+#View(train.clean)
+library(boot)
+```
+
+```{r}
+set.seed(15)
+train <- read.csv("C:/Users/philr/Downloads/house-prices-advanced-regression-techniques/train.csv")
+test <- read.csv("C:/Users/philr/Downloads/house-prices-advanced-regression-techniques/test.csv")
+View(train)
+#Data Cleaning
+train <- subset(train, train$SalePrice != "NA")
+train <- train[,-1]
+test <- test[,-1]
+for(i in 1:ncol(train)){
+  train[is.na(train[,i]), i] <- mean(train[,i], na.rm = TRUE)
+}
+for(i in 1:ncol(test)){
+  test[is.na(test[,i]), i] <- mean(test[,i], na.rm = TRUE)
+}
+
+train$Street <- NULL
+train$Alley <- NULL
+train$MSSubClass <- NULL
+train$Neighborhood <- NULL
+train$LotShape <- NULL
+train$MSZoning <- NULL
+train$LotConfig <- NULL
+test$Street <- NULL
+test$Alley <- NULL
+test$MSSubClass <- NULL
+test$testNeighborhood <- NULL
+test$LotShape <- NULL
+test$MSZoning <- NULL
+test$LotConfig <- NULL
+library("dplyr")
+train<- select_if(train, is.numeric)
+test <- select_if(test, is.numeric)
+test$SalePrice <- rep(0, length(test$YearBuilt))
+
+colnames(test)[colnames(test)=="X1stFlrSF"] <- '1stFlrSF'
+colnames(test)[colnames(test)=="X2ndFlrSF"] <- '2ndFlrSF'
+colnames(test)[colnames(test)=="X3rdFlrSF"] <- '3rdFlrSF'
+colnames(test)[colnames(test)=="X3SsnPorch"] <- '3SsnPorch'
+colnames(train)[colnames(train)=="X1stFlrSF"] <- '1stFlrSF'
+colnames(train)[colnames(train)=="X2ndFlrSF"] <- '2ndFlrSF'
+colnames(train)[colnames(train)=="X3rdFlrSF"] <- '3rdFlrSF'
+colnames(train)[colnames(train)=="X3SsnPorch"] <- '3SsnPorch'
+
+
+test$MSSubClass <- NULL
+test$ID <- NULL
+
+#I cant get the original to run without errors and i cant figure out why. Im just going to use the dataset given for the Midterm Project. 
+```
+
+```{r}
+linreg <- glm(log(SalePrice) ~ . , data = train)  #by default glm will do linear reg
+colnames(train)
+colnames(test)
+
+pred <-predict(linreg, newdata = train )#the score was 1.17
+for(i in 1:length(pred)){
+  pred[i] <- exp(pred[i])
+}
+length(pred) 
+length(train$SalePrice)
+length(is.na(pred))
+length(is.na(train$SalePrice))
+train.mse <- mean((pred - train$SalePrice)^2)
+train.mse # train MSE = 1569666289
+
+write.csv(pred, file = "linear.regression.prediction.csv")
+```
+
+
+```{r}
+#knn 
+X= train.clean[,1:22]
+y = (train.clean$SalePrice)
+X = as.data.frame(X)
+y = as.data.frame(y)
+library(FNN)
+k1 = FNN::knn.reg(train = X,y=y,  k = 1) #by default if you dont supply test, the function does LOOCV.
+k2 = FNN::knn.reg(train = X,y=y,  k = 3)
+k3 = FNN::knn.reg(train = X,y=y,  k = 5)
+k4 = FNN::knn.reg(train = X,y=y,  k = 10)
+k5 = FNN::knn.reg(train = X,y=y,  k = 50)
+k1error <- c(k1$PRESS, k1$R2Pred) #incredibly high RSS, low r^2 
+k2error <- c(k2$PRESS, k2$R2Pred) #Same with the rest. 
+k3error <- c(k3$PRESS, k3$R2Pred)
+k4error <- c(k4$PRESS, k4$R2Pred)
+k5error <- c(k5$PRESS, k5$R2Pred)
+k2error
+k3error
+k4error
+k5error #as expected, KNN performs horribly with high P
+#prediction for k = 5
+#pred <- FNN::knn.reg(train = X, y=y, test = test.clean[,1:22],k=5)
+#write.csv(pred, "knn.pred.csv")
+```
+
+```{r}
+#Subset selection
+library(leaps)
+best.subset <- regsubsets(log(SalePrice) ~ . ,data = train,nvmax = 23, method = "forward")
+best.subset.summary <- summary(best.subset)
+blah <- which.min(best.subset.summary$bic)
+blah2 <- which.min(best.subset.summary$adjr2)
+which.max(best.subset.summary$adjr2) #18th degree model
+#prediction
+predict.regsubsets <- function (object, newdata, id, ...){
+form <- as.formula(object$call[[2]])
+mat <- model.matrix(form, newdata)
+coefi <- coef(object, id = id)
+xvars <- names(coefi)
+return(mat[,xvars] %*% coefi)}
+prediction <- predict.regsubsets(best.subset, newdata = train, id = which.min(best.subset.summary$adjr2))
+for(i in 1:length(prediction)){
+  prediction[i] <- exp(prediction[i])
+}
+#prediction[150:160]
+train.mse <- mean((prediction - train$SalePrice)^2)
+train.mse #2070383766
+
+
+write.csv(prediction, "forward.subset")
+```
+
+
+```{r}
+back.subset <- regsubsets(log(SalePrice) ~ . ,data = train,nvmax = 21, method = "backward")
+back.subset.summary <- summary(back.subset)
+predict.backsubsets <- function (object, newdata, id, ...){
+form <- as.formula(object$call[[2]])
+mat <- model.matrix(form, newdata)
+coefi <- coef(object, id = id)
+xvars <- names(coefi)
+return(mat[,xvars] %*% coefi)}
+predict <- predict.backsubsets(back.subset, newdata = train, id = which.min(best.subset.summary$cp))
+for(i in 1:length(prediction)){
+  prediction[i] <- exp(prediction)
+}
+
+test.mse <- mean((prediction - train$SalePrice)^2)
+test.mse
+  
+  
+write.csv(predict, "back.subset")#.6, same as forward subset
+```
+
+```{r}
+mixed.subset <- regsubsets(SalePrice ~ . ,data = train.clean,nvmax = 21, method = "seqrep")
+mixed.subset.summary <- summary(mixed.subset)
+predict.mixedsubsets <- function (object, newdata, id, ...){
+form <- as.formula(object$call[[2]])
+mat <- model.matrix(form, newdata)
+coefi <- coef(object, id = id)
+xvars <- names(coefi)
+return(mat[,xvars] %*% coefi)
+}
+predict <- predict.mixedsubsets(mixed.subset, newdata = test.clean, id = which.min(mixed.subset.summary$cp))
+write.csv(predict, "mixed.subset")
+
+#.6, pretty much the same as forward/backward methods
+```
+
+```{r}
+#Trees
+library(tree)
+tree.house <- tree((SalePrice) ~ .,data = train)
+#lets try cross validation and pruning
+tree.cv.house <- cv.tree(tree.house)
+
+best.size <- tree.cv.house$size[which.min(tree.cv.house$dev)]
+pruned.tree.house <- prune.tree(tree.house, best = best.size)
+plot(pruned.tree.house)
+yhat.tree <- predict(pruned.tree.house,newdata = test )
+
+write.csv(yhat.tree, "tree.prediction.csv") #.24
+
+```
+
+```{r}
+#Bagging
+library(randomForest)
+bag.house <- randomForest(log(SalePrice)~., data = train[c(-11, -12, -13, -29)], mtry =(ncol(train)-5), importance = TRUE, ntree = 1000)
+yhat.bag <-predict(bag.house, newdata = train)
+yhat.bag <- exp(yhat.bag)
+yhat.mse <- mean((yhat.bag - train$SalePrice)^2)
+yhat.mse  #150194994 #log transformation actually helps by 6 million mse points 
+#write.csv(yhat.bag, "bagging.csv") #.24
+```
+```{r}
+rf.house <-randomForest(log(SalePrice)~., data = train[c(-11, -12, -13, -29)],mtry =round(sqrt(ncol(train.clean)-5)),importance = TRUE, ntree = 1000)
+yhat.rf <- predict(rf.house, newdata = train)
+yhat.rf <- exp(yhat.rf)
+yhat.mse <- mean((yhat.rf - train$SalePrice)^2)
+yhat.mse  #212773410
+#write.csv(yhat.rf, "rf.house") #.24
+
+```
+
+
+
+```{r}
+#PCR
+library(pls)
+pcr.fit <- pcr(log(SalePrice) ~ ., data = train, scale = TRUE, validation = "CV")
+pcr.cv.rmse <- RMSEP(pcr.fit)
+prediction <- predict(pcr.fit, newdata = train, ncomp = which.min(pcr.cv.rmse$val[1,1,-1]))
+prediction <- exp(prediction)
+pcr.mse <- mean((prediction - train$SalePrice)^2)
+pcr.mse #1609906548
+#write.csv(prediction, "pcr.csv")
+#.86
+```
+
+```{r}
+#PLS
+pls.fit <- plsr(log(SalePrice)  ~., data = train, scale = TRUE, validation = "CV")
+pls.cv.rmse <- RMSEP(pls.fit)
+prediction <- predict(pls.fit, newdata = train, ncomp= which.min(pls.cv.rmse$val[1,1,-1]))
+prediction <- exp(prediction)
+pls.mse <- mean((prediction - train$SalePrice)^2)
+pls.mse #1544154709
+#write.csv(prediction, "pls.csv")
+
+#.60
+```
+
+```{r}
+
+#SVR
+#install.packages("e1071")
+library(e1071)
+set.seed(15)
+svr.fit <- tune(svm, log(SalePrice) ~., data = train, scale = TRUE, kernel = "linear")
+pred.response <- predict(svr.fit$best.model, train )
+pred.response <- exp(pred.response)
+length(pred.response)
+length(train$SalePrice)#Mismatched lengths between svr.fit and train$salePrice
+pls.mse <- mean((pred.response - train$SalePrice)^2)
+pls.mse # 10574848873
+#write.csv(pred.response, "SVR.csv") 
+#.46
+```
+
+```{r}
+library(glmnet)
+x <- model.matrix(log(SalePrice) ~ . -SalePrice ,data=train)
+Y <- log(train$SalePrice)
+ridge.model <-glmnet(x,Y, alpha = 0 )
+names(ridge.model)
+ridge.model$lambda
+cv.out <- cv.glmnet(x,Y, alpha = 0, nfolds = 10)
+cv.out$lambda.min
+cv.out$cvm #this is doing CV error
+plot(cv.out)
+prediction <- predict(ridge.model, s = cv.out$lambda.min, newx = x) 
+prediction <- exp(prediction)
+
+#write.csv(prediction, "predict.ridge.csv")
+#the score was .46
+```
+
+```{r}
+#Lasso regression
+x <- model.matrix(SalePrice ~ . -SalePrice ,data=train.clean,)
+Y <- train.clean$SalePrice
+x.test <-model.matrix(SalePrice ~ . -SalePrice ,data=test.clean,)
+Y.test <- test.clean$SalePrice
+lasso.model <- glmnet(x, Y, alpha = 1)
+lasso.model$lambda
+min <- which.min(lasso.model$lambda)
+coef(lasso.model, s = lasso.model$lambda[min])
+cv.out <- cv.glmnet(x,Y, alpha =1, nfolds = 10)
+cv.out$lambda.min
+cv.out$cvm #CV Error
+plot(cv.out)
+prediction <- predict(lasso.model, s = cv.out$lambda.min, newx = x.test)
+#the submission score was .605. 
+```
+
+```{r}
+
+#elastic net regression
+set.seed(1)
+x <- model.matrix(log(SalePrice) ~ . -log(SalePrice) ,data=train)
+Y <- log(train.clean$SalePrice)
+library(glmnet)
+list.of.fits <- list()
+for(i in 0:100){
+fit.name <- paste0("alpha", i/100)
+list.of.fits[[fit.name]] <- cv.glmnet(x,Y,  alpha = i/100, family = "gaussian")
+}
+results <- data.frame()
+for(i in 0:100){
+fit.name <- paste0("alpha", i/100)
+predicted <- predict(list.of.fits[[fit.name]], s = list.of.fits[[fit.name]]$lambda.1se, newx =x)
+mse <- mean((Y-predicted)^2)
+temp <- data.frame(alpha = i/100, mse = mse, fit.name = fit.name)
+results <- rbind(results, temp)
+}
+best.alpha <- which.min(results$mse)
+best.alpha / 100
+elasticnet.model <- glmnet(x, Y, alpha = best.alpha/100)
+cv.out <- cv.glmnet(x,Y, alpha =best.alpha/100, nfolds = 100)
+prediction <- predict(elasticnet.model, s = cv.out$lambda.min, newx = x)
+prediction <- exp(prediction)
+new.mse <- mean((Y -prediction)^2)
+new.mse
+
+#write.csv(prediction,"elasticnet.csv") #0.25978
+
+```
+
+
+```{r}
+set.seed(1)
+library(gbm)
+gbm.fit <- gbm(
+  formula = log(SalePrice) ~ .,
+  distribution = "gaussian",
+  data = train,
+  n.trees = 10000,
+  interaction.depth = 10,
+  shrinkage = 0.001,
+  cv.folds = 20,
+  verbose = TRUE
+  )  
+sqrt(min(gbm.fit$cv.error))
+
+prediction <- predict(gbm.fit, newdata= train)
+prediction <- exp(prediction)
+pred.mse <- mean((prediction - train$SalePrice)^2) .1317
+
+#write.csv(prediction, "gbm.Prediction2.csv")
+#.138 which is my best
+summary(gbm.fit)
+gbm.fit
+plot(gbm.fit)
+```
+
+```{r}
+#Gam
+library(gam)
+gam.fit<-gam(log(SalePrice)~ s(OverallQual, df = 1)+ s(X1stFlrSF, df = 3)+ s(BsmtFinSF1, df = 3)+ s(GarageCars, df =1 ) + s(X2ndFlrSF, df = 3),data = train.clean)
+plot(gam.fit)
+summary(gam.fit)
+prediction <- predict(gam.fit, newdata=  test.clean)
+write.csv(prediction, "gam.prediction") #ran out of submissions :(
+
+```
+
+
+
+
+
+
+
+
+
+
+
